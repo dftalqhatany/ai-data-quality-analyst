@@ -40,7 +40,7 @@ def generate_final_report(context):
     if mode == "Missing Values":
         total_missing = analysis.get("total_missing_values", 0)
         return {
-            "executive_summary": f"Missing values analysis completed. Total missing values: {total_missing}.",
+            "executive_summary": f"Missing values analysis completed. Total missing values: {total_missing}. Data quality score: {analysis.get('quality_score', 0)}/100.",
             "recommendations": [
                 "Handle missing values using mean, median, mode, or row removal depending on business context."
             ],
@@ -51,7 +51,7 @@ def generate_final_report(context):
     elif mode == "Duplicate Rows":
         duplicates = analysis.get("duplicate_rows", 0)
         return {
-            "executive_summary": f"Duplicate row analysis completed. Total duplicate rows: {duplicates}.",
+            "executive_summary": f"Duplicate row analysis completed. Total duplicate rows: {duplicates}. Data quality score: {analysis.get('quality_score', 0)}/100.",
             "recommendations": ["Remove duplicate rows before training or reporting."] if duplicates > 0 else ["No duplicate row issue detected."],
             "final_decision": "Review Duplicates",
             "task_focus": task_focus
@@ -60,7 +60,7 @@ def generate_final_report(context):
     elif mode == "Data Types Check":
         mixed = analysis.get("mixed_type_columns", [])
         return {
-            "executive_summary": f"Data types analysis completed. Mixed-type columns found: {len(mixed)}.",
+            "executive_summary": f"Data types analysis completed. Mixed-type columns found: {len(mixed)}. Data quality score: {analysis.get('quality_score', 0)}/100.",
             "recommendations": ["Standardize column types before downstream use."] if mixed else ["Column data types look consistent."],
             "final_decision": "Review Data Types",
             "task_focus": task_focus
@@ -70,7 +70,7 @@ def generate_final_report(context):
         outliers = analysis.get("outlier_summary", [])
         total_outliers = sum(item["outliers"] for item in outliers)
         return {
-            "executive_summary": f"Outlier detection completed. Total detected outliers: {total_outliers}.",
+            "executive_summary": f"Outlier detection completed. Total detected outliers: {total_outliers}. Data quality score: {analysis.get('quality_score', 0)}/100.",
             "recommendations": ["Investigate extreme values and decide whether to cap, transform, or remove them."] if total_outliers > 0 else ["No significant outlier issue detected."],
             "final_decision": "Review Outliers",
             "task_focus": task_focus
@@ -79,13 +79,12 @@ def generate_final_report(context):
     elif mode == "Column Consistency":
         issues = analysis.get("consistency_issues", [])
         return {
-            "executive_summary": f"Column consistency check completed. Columns with consistency issues: {len(issues)}.",
+            "executive_summary": f"Column consistency check completed. Columns with consistency issues: {len(issues)}. Data quality score: {analysis.get('quality_score', 0)}/100.",
             "recommendations": ["Normalize spacing and text casing in categorical columns."] if issues else ["No major consistency issues detected."],
             "final_decision": "Review Consistency",
             "task_focus": task_focus
         }
 
-    # Full Quality Audit
     score = analysis.get("quality_score", 0)
     readiness = analysis.get("readiness", "Unknown")
 
