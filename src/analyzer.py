@@ -6,7 +6,6 @@ def analyze_dataset(df, analysis_mode="Full Quality Audit"):
 
     missing_counts = df.isna().sum()
     duplicate_rows = int(df.duplicated().sum())
-
     numeric_df = df.select_dtypes(include=["number"])
 
     result = {
@@ -25,6 +24,7 @@ def analyze_dataset(df, analysis_mode="Full Quality Audit"):
             "issue_summary": [
                 {"issue_type": "Missing Values", "count": int(missing_counts.sum())}
             ],
+            "total_missing_values": int(missing_counts.sum()),
             "missing_by_column": missing_by_column
         })
         return result
@@ -148,6 +148,7 @@ def analyze_dataset(df, analysis_mode="Full Quality Audit"):
             {"issue_type": "Missing Values", "count": int(missing_counts.sum())},
             {"issue_type": "Duplicate Rows", "count": duplicate_rows}
         ],
+        "total_missing_values": int(missing_counts.sum()),
         "missing_by_column": missing_by_column,
         "column_risks": column_risks
     })
