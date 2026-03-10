@@ -1,4 +1,3 @@
-
 import pandas as pd
 from pathlib import Path
 
@@ -6,7 +5,7 @@ def load_dataframe(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix == ".csv":
         return pd.read_csv(uploaded_file)
-    elif suffix in [".xlsx",".xls"]:
+    elif suffix in [".xlsx", ".xls"]:
         return pd.read_excel(uploaded_file)
     else:
         raise ValueError("Unsupported format")
