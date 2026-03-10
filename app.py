@@ -1,178 +1,456 @@
 import os
-import sys
+from io import BytesIO
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 from openai import OpenAI
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
-BASE_DIR = Path(__file__).resolve().parent
-SRC_DIR = BASE_DIR / "src"
-sys.path.append(str(SRC_DIR))
-
-from analyzer import analyze_dataset
-from agent import (
-    build_analysis_context,
-    generate_final_report,
-    infer_task_focus,
-)
-from io_utils import load_dataframe, dataframe_overview
-
-st.set_page_config(page_title="AI Data Quality Analyst", layout="wide")
-st.title("AI Data Quality Analyst (GPT-5)")
-
-st.sidebar.header("Configuration")
-
-analysis_mode = st.sidebar.selectbox(
-    "Analysis mode",
-    [
-        "Full Quality Audit",
-        "Missing Values",
-        "Duplicate Rows",
-        "Data Types Check",
-        "Outlier Detection",
-        "Column Consistency",
-    ],
+st.set_page_config(
+    page_title="AI Data Quality Analyst",
+    page_icon="📊",
+    layout="wide"
 )
 
-agent_task = st.text_area(
-    "Agent task",
-    placeholder="Example: check if dataset has null values, duplicates, or outliers"
-)
+st.title("AI Data Quality Analyst")
+
+
+# -----------------------
+# Load Data
+# -----------------------
+
+def load_dataframe(uploaded_file):
+
+    suffix = Path(uploaded_file.name).suffix.lower()
+
+    if suffix == ".csv":
+        return pd.read_csv(uploaded_file)
+
+    if suffix in [".xlsx", ".xls"]:
+        return pd.read_excel(uploaded_file)
+
+    raise ValueError("Unsupported file format")
+
+
+# -----------------------
+# Dataset Overview
+# -----------------------
+
+def dataframe_overview(df):
+
+    return {
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "missing_cells": int(df.isna().sum().sum()),
+        "duplicate_rows": int(df.duplicated().sum()),
+    }
+
+
+# -----------------------
+# Quality Score
+# -----------------------
+
+def quality_score(df):
+
+    rows, cols = df.shape
+    total_cells = max(rows * cols, 1)
+
+    missing_cells = int(df.isna().sum().sum())
+    duplicate_rows = int(df.duplicated().sum())
+
+    missing_penalty = min(40, (missing_cells / total_cells) * 100)
+    duplicate_penalty = min(20, (duplicate_rows / rows) * 100 if rows else 0)
+
+    score = int(max(0, 100 - missing_penalty - duplicate_penalty))
+
+    if score > 85:
+        readiness = "Ready for AI"
+    elif score > 65:
+        readiness = "Needs Cleaning"
+    else:
+        readiness = "High Risk Dataset"
+
+    return score, readiness
+
+
+# -----------------------
+# Outlier Detection
+# -----------------------
+
+def detect_outliers(df):
+
+    numeric = df.select_dtypes(include="number")
+
+    results = {}
+
+    for col in numeric.columns:
+
+        series = numeric[col].dropna()
+
+        if len(series) < 4:
+            continue
+
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+
+        iqr = q3 - q1
+
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+
+        outliers = series[(series < lower) | (series > upper)]
+
+        results[col] = len(outliers)
+
+    return results
+
+
+# -----------------------
+# Dashboard
+# -----------------------
+
+def render_dashboard(df, structured):
+
+    st.subheader("Dashboard")
+
+    score = structured["score"]
+    readiness = structured["readiness"]
+
+    st.progress(score, text=f"Data Quality Score: {score}/100")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Rows", structured["rows"])
+    col2.metric("Columns", structured["columns"])
+    col3.metric("Missing Cells", structured["missing_cells"])
+    col4.metric("Duplicate Rows", structured["duplicate_rows"])
+
+    if readiness == "Ready for AI":
+        st.success(readiness)
+    elif readiness == "Needs Cleaning":
+        st.warning(readiness)
+    else:
+        st.error(readiness)
+
+    tab1, tab2, tab3 = st.tabs(
+        ["Missing Values", "Data Types", "Outliers"]
+    )
+
+    with tab1:
+
+        st.write("Missing Values by Column")
+
+        missing = df.isna().sum()
+
+        missing_df = pd.DataFrame({
+            "column": missing.index,
+            "missing": missing.values
+        })
+
+        missing_df = missing_df[missing_df["missing"] > 0]
+
+        if not missing_df.empty:
+            st.bar_chart(missing_df.set_index("column"))
+        else:
+            st.info("No missing values")
+
+    with tab2:
+
+        st.write("Data Types Distribution")
+
+        dtype_counts = df.dtypes.astype(str).value_counts()
+
+        dtype_df = pd.DataFrame({
+            "dtype": dtype_counts.index,
+            "count": dtype_counts.values
+        }).set_index("dtype")
+
+        st.bar_chart(dtype_df)
+
+    with tab3:
+
+        st.write("Outliers by Column")
+
+        outliers = detect_outliers(df)
+
+        if outliers:
+
+            outlier_df = pd.DataFrame({
+                "column": outliers.keys(),
+                "outliers": outliers.values()
+            }).set_index("column")
+
+            st.bar_chart(outlier_df)
+
+        else:
+
+            st.info("No numeric outliers detected")
+
+
+# -----------------------
+# PDF Report
+# -----------------------
+
+def build_pdf_report(filename, question, structured, analyses):
+
+    buffer = BytesIO()
+
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+
+    y = 800
+
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(50, y, "AI Data Quality Report")
+
+    y -= 40
+
+    pdf.setFont("Helvetica", 11)
+
+    pdf.drawString(50, y, f"File: {filename}")
+    y -= 20
+
+    pdf.drawString(50, y, f"Question: {question}")
+    y -= 30
+
+    pdf.drawString(50, y, "Dataset Overview")
+    y -= 20
+
+    pdf.drawString(50, y, f"Rows: {structured['rows']}")
+    y -= 20
+    pdf.drawString(50, y, f"Columns: {structured['columns']}")
+    y -= 20
+    pdf.drawString(50, y, f"Missing Cells: {structured['missing_cells']}")
+    y -= 20
+    pdf.drawString(50, y, f"Duplicate Rows: {structured['duplicate_rows']}")
+    y -= 20
+    pdf.drawString(50, y, f"Quality Score: {structured['score']}/100")
+
+    y -= 40
+
+    for analysis in analyses:
+
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(50, y, analysis["title"])
+        y -= 20
+
+        pdf.setFont("Helvetica", 10)
+
+        for line in analysis["content"].split("\n"):
+
+            if y < 100:
+                pdf.showPage()
+                y = 800
+
+            pdf.drawString(50, y, line[:100])
+            y -= 15
+
+        y -= 20
+
+    pdf.save()
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+# -----------------------
+# GPT
+# -----------------------
+
+def ask_gpt(client, question, structured, mode):
+
+    prompt = f"""
+
+You are a senior data quality analyst.
+
+User Question:
+{question}
+
+Analysis Mode:
+{mode}
+
+Dataset Information:
+{structured}
+
+Provide:
+
+- Executive summary
+- Key findings
+- Data quality score /100
+- Readiness for AI/ML
+- Recommended fixes
+
+Avoid repeating previous analyses.
+
+"""
+
+    response = client.responses.create(
+        model="gpt-5",
+        input=prompt
+    )
+
+    if hasattr(response, "output_text"):
+        return response.output_text
+
+    return str(response)
+
+
+# -----------------------
+# Session
+# -----------------------
+
+if "analyses" not in st.session_state:
+    st.session_state.analyses = []
+
+if "question_submitted" not in st.session_state:
+    st.session_state.question_submitted = False
+
+if "pdf_bytes" not in st.session_state:
+    st.session_state.pdf_bytes = None
+
+
+# -----------------------
+# Upload
+# -----------------------
 
 uploaded_file = st.file_uploader(
     "Upload CSV or Excel file",
     type=["csv", "xlsx", "xls"]
 )
 
-run_analysis = st.button("Run Analysis")
-run_gpt = st.button("Analyze with GPT-5")
+if uploaded_file is None:
+    st.info("Upload dataset first.")
+    st.stop()
 
-if uploaded_file is not None:
-    try:
-        df = load_dataframe(uploaded_file)
-    except Exception as e:
-        st.error(f"Failed to load file: {e}")
-        st.stop()
+df = load_dataframe(uploaded_file)
 
-    st.subheader("Dataset Preview")
-    st.dataframe(df.head())
+overview = dataframe_overview(df)
 
-    overview = dataframe_overview(df)
+score, readiness = quality_score(df)
 
-    # interpret free-text task
-    task_focus = infer_task_focus(agent_task)
+structured = {
+    **overview,
+    "score": score,
+    "readiness": readiness
+}
 
-    # run selected mode, but keep task focus for report + GPT prompt
-    analysis = analyze_dataset(df, analysis_mode=analysis_mode)
 
-    context = build_analysis_context(
-        user_goal=agent_task if agent_task.strip() else "Assess data quality for AI readiness",
-        filename=uploaded_file.name,
-        analysis_mode=analysis_mode,
-        analysis=analysis,
-        task_focus=task_focus,
+# -----------------------
+# Question
+# -----------------------
+
+with st.form("question_form"):
+
+    question = st.text_area(
+        "Ask your question",
+        placeholder="Example: Is this dataset ready for training?"
     )
 
-    final_report = generate_final_report(context)
+    col1, col2 = st.columns([8,1])
 
-    if run_analysis or run_gpt:
-        st.subheader("Overview")
-        st.json(overview)
+    with col2:
+        submitted = st.form_submit_button("Send")
 
-        st.subheader("Detected Agent Intent")
-        st.write(task_focus)
 
-        st.subheader("Analysis Results")
+if submitted:
 
-        if analysis_mode == "Missing Values":
-            st.json(analysis.get("missing_by_column", []))
-            st.metric("Total Missing Cells", analysis.get("total_missing_values", 0))
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        elif analysis_mode == "Duplicate Rows":
-            st.metric("Duplicate Rows", analysis.get("duplicate_rows", 0))
+    answer = ask_gpt(client, question, structured, "Auto")
 
-        elif analysis_mode == "Data Types Check":
-            st.json(analysis.get("mixed_type_columns", []))
-            st.json(analysis.get("dtypes", {}))
+    st.session_state.analyses = [{
+        "title": "Primary GPT-5 Analysis",
+        "mode": "Auto",
+        "content": answer
+    }]
 
-        elif analysis_mode == "Outlier Detection":
-            st.json(analysis.get("outlier_summary", []))
+    st.session_state.question_submitted = True
 
-        elif analysis_mode == "Column Consistency":
-            st.json(analysis.get("consistency_issues", []))
+    st.session_state.pdf_bytes = build_pdf_report(
+        uploaded_file.name,
+        question,
+        structured,
+        st.session_state.analyses
+    )
 
-        else:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Quality Score", analysis.get("quality_score", 0))
-            with col2:
-                st.metric("Readiness", analysis.get("readiness", "Unknown"))
-            st.json(analysis)
 
-        st.subheader("Final Report")
-        st.json(final_report)
+# -----------------------
+# Analyses
+# -----------------------
 
-    if run_gpt:
-        api_key = os.getenv("OPENAI_API_KEY")
+if st.session_state.analyses:
 
-        if not api_key:
-            st.error("OPENAI_API_KEY is missing. Set it in your terminal before running the app.")
-            st.stop()
+    for analysis in st.session_state.analyses:
 
-        try:
-            client = OpenAI(api_key=api_key)
+        st.subheader(analysis["title"])
+        st.write(analysis["content"])
 
-            prompt = f"""
-You are a senior data quality analyst.
 
-User task:
-{agent_task if agent_task.strip() else "No custom task provided"}
+# -----------------------
+# Preview + Dashboard
+# -----------------------
 
-Detected task focus:
-{task_focus}
+if st.session_state.question_submitted:
 
-Selected analysis mode:
-{analysis_mode}
+    st.subheader("Dataset Preview")
+    st.dataframe(df.head(), use_container_width=True)
 
-Filename:
-{uploaded_file.name}
+    render_dashboard(df, structured)
 
-Dataset overview:
-{overview}
 
-Rule-based analysis output:
-{analysis}
+# -----------------------
+# Sidebar Analysis Mode
+# -----------------------
 
-Final local report:
-{final_report}
+st.sidebar.header("Analysis Mode")
 
-Instructions:
-- Answer based on the user's task and the selected analysis mode.
-- If the task asks about null values, focus heavily on missing values.
-- If the task asks about duplicates, focus heavily on duplicate rows.
-- If the task asks about outliers, focus heavily on outlier detection.
-- If the task asks about types, focus heavily on data type issues.
-- If the task asks about consistency, focus heavily on text/categorical consistency.
-- If the mode is Full Quality Audit, provide a broad assessment.
+mode = st.sidebar.selectbox(
+    "Choose analysis",
+    [
+        "Select analysis",
+        "Missing Values",
+        "Duplicate Rows",
+        "Data Types Check",
+        "Outlier Detection",
+    ],
+    disabled=not st.session_state.question_submitted
+)
 
-Return:
-1. Executive summary
-2. Main findings
-3. Business risk
-4. Recommended fixes
-5. Priority next steps
-"""
+apply_mode = st.sidebar.button(
+    "Add Analysis",
+    disabled=not st.session_state.question_submitted or mode == "Select analysis"
+)
 
-            with st.spinner("Analyzing with GPT-5..."):
-                response = client.responses.create(
-                    model="gpt-5",
-                    input=prompt
-                )
+if apply_mode:
 
-            st.subheader("GPT-5 Analysis")
-            st.write(response.output_text)
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        except Exception as e:
-            st.error(f"OpenAI API error: {e}")
-else:
-    st.info("Upload a file first, then click Run Analysis or Analyze with GPT-5.")
+    answer = ask_gpt(client, question, structured, mode)
+
+    st.session_state.analyses.append({
+        "title": f"Additional Analysis — {mode}",
+        "mode": mode,
+        "content": answer
+    })
+
+    st.session_state.pdf_bytes = build_pdf_report(
+        uploaded_file.name,
+        question,
+        structured,
+        st.session_state.analyses
+    )
+
+
+# -----------------------
+# Download
+# -----------------------
+
+if st.session_state.pdf_bytes:
+
+    st.download_button(
+        "Download PDF Report",
+        st.session_state.pdf_bytes,
+        "data_quality_report.pdf"
+    )
