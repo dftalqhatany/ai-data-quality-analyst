@@ -1,17 +1,66 @@
 import pandas as pd
 
-def analyze_dataset(df, analysis_mode="Full Quality Audit"):
+
+def calculate_quality_score(df):
     rows, cols = df.shape
     total_cells = max(rows * cols, 1)
 
     missing_counts = df.isna().sum()
     duplicate_rows = int(df.duplicated().sum())
+
+    missing_penalty = min(40, (missing_counts.sum() / total_cells) * 100)
+    duplicate_penalty = min(20, (duplicate_rows / rows) * 100 if rows else 0)
+
     numeric_df = df.select_dtypes(include=["number"])
+    outlier_penalty = 0
+
+    if not numeric_df.empty:
+        total_outliers = 0
+        total_numeric_values = 0
+
+        for col in numeric_df.columns:
+            series = numeric_df[col].dropna()
+            total_numeric_values += len(series)
+
+            if len(series) > 0:
+                q1 = series.quantile(0.25)
+                q3 = series.quantile(0.75)
+                iqr = q3 - q1
+
+                if iqr != 0:
+                    lower = q1 - 1.5 * iqr
+                    upper = q3 + 1.5 * iqr
+                    total_outliers += int(((series < lower) | (series > upper)).sum())
+
+        if total_numeric_values > 0:
+            outlier_penalty = min(20, (total_outliers / total_numeric_values) * 100)
+
+    quality_score = int(max(0, 100 - missing_penalty - duplicate_penalty - outlier_penalty))
+
+    if quality_score > 85:
+        readiness = "Ready for AI"
+    elif quality_score > 65:
+        readiness = "Needs Cleaning"
+    else:
+        readiness = "High Risk Dataset"
+
+    return quality_score, readiness
+
+
+def analyze_dataset(df, analysis_mode="Full Quality Audit"):
+    rows, cols = df.shape
+    missing_counts = df.isna().sum()
+    duplicate_rows = int(df.duplicated().sum())
+    numeric_df = df.select_dtypes(include=["number"])
+
+    quality_score, readiness = calculate_quality_score(df)
 
     result = {
         "analysis_mode": analysis_mode,
         "rows": rows,
         "columns": cols,
+        "quality_score": quality_score,
+        "readiness": readiness,
     }
 
     if analysis_mode == "Missing Values":
@@ -113,7 +162,6 @@ def analyze_dataset(df, analysis_mode="Full Quality Audit"):
         })
         return result
 
-    # Full Quality Audit
     missing_by_column = [
         {"column": c, "missing": int(v)}
         for c, v in missing_counts.items() if v > 0
@@ -129,21 +177,7 @@ def analyze_dataset(df, analysis_mode="Full Quality Audit"):
                 "count": miss
             })
 
-    missing_penalty = min(40, (missing_counts.sum() / total_cells) * 100)
-    duplicate_penalty = min(20, (duplicate_rows / rows) * 100 if rows else 0)
-
-    quality_score = int(max(0, 100 - missing_penalty - duplicate_penalty))
-
-    if quality_score > 85:
-        readiness = "Ready for AI"
-    elif quality_score > 65:
-        readiness = "Needs Cleaning"
-    else:
-        readiness = "High Risk Dataset"
-
     result.update({
-        "quality_score": quality_score,
-        "readiness": readiness,
         "issue_summary": [
             {"issue_type": "Missing Values", "count": int(missing_counts.sum())},
             {"issue_type": "Duplicate Rows", "count": duplicate_rows}
