@@ -151,6 +151,10 @@ with st.form("question_form"):
 
 if submitted:
     with st.spinner("Analyzing dataset..."):
+        st.session_state.analysis_text = ""
+        st.session_state.pdf_bytes = None
+        st.session_state.question_submitted = False
+
         try:
             final_question = question or "Assess the dataset for the selected goal."
 
@@ -161,10 +165,7 @@ if submitted:
                 recommendations=recommendations,
             )
 
-            st.session_state.analysis_text = analysis_text
-            st.session_state.question_submitted = True
-
-            st.session_state.pdf_bytes = build_pdf_report(
+            pdf_bytes = build_pdf_report(
                 filename=uploaded_file.name,
                 question=final_question,
                 structured=structured,
@@ -174,10 +175,14 @@ if submitted:
                 goal_label=goal_label,
             )
 
-            st.success("Request sent successfully ✅")
+            st.session_state.analysis_text = analysis_text
+            st.session_state.pdf_bytes = pdf_bytes
+            st.session_state.question_submitted = True
+
+            st.success("Analysis completed and PDF report generated successfully ✅")
 
         except Exception as exc:
-            st.error(f"OpenAI request failed: {exc}")
+            st.error(f"Analysis or PDF generation failed: {exc}")
 
 
 st.subheader("Readiness Summary")
@@ -207,10 +212,12 @@ if st.session_state.question_submitted:
         st.write(f"- {rec}")
 
 
-if st.session_state.pdf_bytes:
+if st.session_state.pdf_bytes is not None:
+    st.subheader("Download Report")
     st.download_button(
-        "Download PDF Report",
-        st.session_state.pdf_bytes,
-        "data_quality_report.pdf",
+        label="Download PDF Report",
+        data=st.session_state.pdf_bytes,
+        file_name="data_quality_report.pdf",
         mime="application/pdf",
+        use_container_width=True,
     )
