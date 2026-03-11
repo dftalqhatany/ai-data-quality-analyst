@@ -522,7 +522,7 @@ if st.session_state.last_goal != goal:
 # -----------------------
 action_label = {
     "Build Report": "Build Report Readiness Assessment",
-    "Run Analysis": "Run Analysis Readiness Assessment",
+    "Data Analysis": "Run Analysis Readiness Assessment",
     "Build Model": "Build Model Readiness Assessment"
 }[goal]
 
