@@ -161,7 +161,6 @@ if submitted:
                 question=final_question,
                 structured=structured,
                 goal_label=goal_label,
-                recommendations=recommendations,
             )
 
             pdf_bytes = build_pdf_report(
@@ -170,7 +169,6 @@ if submitted:
                 structured=structured,
                 analysis_text=analysis_text,
                 df=df,
-                recommendations=recommendations,
                 goal_label=goal_label,
             )
 
