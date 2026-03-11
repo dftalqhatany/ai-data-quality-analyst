@@ -28,7 +28,7 @@ def detect_outliers(df: pd.DataFrame) -> dict:
     return results
 
 
-def assess_readiness(df: pd.DataFrame, goal_key: str):
+def assess_readiness(df: pd.DataFrame):
     rows, cols = df.shape
     total_cells = max(rows * cols, 1)
 
@@ -48,48 +48,14 @@ def assess_readiness(df: pd.DataFrame, goal_key: str):
     duplicate_penalty = min(20, duplicate_ratio * 100)
     outlier_penalty = min(15, (total_outliers / max(rows, 1)) * 100)
 
-    base_score = 100 - missing_penalty - duplicate_penalty - outlier_penalty
+    score = int(max(0, min(100, 100 - missing_penalty - duplicate_penalty - outlier_penalty)))
 
-    if goal_key == "report":
-        score = int(max(0, min(100, base_score + 8)))
-        if score >= 75:
-            status = "Suitable for report building"
-        elif score >= 55:
-            status = "Needs minor cleaning before report building"
-        else:
-            status = "Not suitable for report building yet"
-
-    elif goal_key == "analysis":
-        score = int(max(0, min(100, base_score)))
-        if score >= 80:
-            status = "Suitable for data analysis"
-        elif score >= 60:
-            status = "Needs cleaning before data analysis"
-        else:
-            status = "Low data quality for analysis"
-
-    elif goal_key == "model":
-        model_penalty = 0
-
-        if numeric_cols == 0:
-            model_penalty += 20
-        if missing_ratio > 0.10:
-            model_penalty += 10
-        if duplicate_ratio > 0.05:
-            model_penalty += 8
-
-        score = int(max(0, min(100, base_score - 8 - model_penalty)))
-
-        if score >= 85:
-            status = "Suitable for model building"
-        elif score >= 65:
-            status = "Needs preprocessing before model building"
-        else:
-            status = "Not suitable for model building yet"
-
+    if score >= 85:
+        status = "High data quality"
+    elif score >= 65:
+        status = "Moderate data quality"
     else:
-        score = int(max(0, min(100, base_score)))
-        status = "Goal not selected"
+        status = "Low data quality"
 
     summary = {
         "rows": rows,
@@ -100,36 +66,6 @@ def assess_readiness(df: pd.DataFrame, goal_key: str):
         "text_columns": text_cols,
         "outlier_count": total_outliers,
         "score": score,
-        "status": status,
     }
 
     return score, status, summary
-
-
-def goal_recommendations(goal_key: str, structured: dict) -> list[str]:
-    recs = []
-
-    if structured["missing_cells"] > 0:
-        recs.append("Handle missing values before proceeding.")
-
-    if structured["duplicate_rows"] > 0:
-        recs.append("Remove duplicate rows to improve consistency.")
-
-    if structured["outlier_count"] > 0:
-        recs.append("Review numeric outliers and validate extreme values.")
-
-    if goal_key == "report":
-        recs.append("Ensure key business columns are complete for accurate reporting.")
-        recs.append("Standardize labels and categories for cleaner report visuals.")
-
-    elif goal_key == "analysis":
-        recs.append("Validate data types before running analytical workflows.")
-        recs.append("Check column consistency and business logic across fields.")
-
-    elif goal_key == "model":
-        recs.append("Encode categorical columns before model training.")
-        recs.append("Split features and target clearly before building the model.")
-        recs.append("Consider scaling numeric features if required by the algorithm.")
-        recs.append("Review class balance if this dataset will be used for classification.")
-
-    return recs
