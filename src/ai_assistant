@@ -1,0 +1,81 @@
+import os
+
+from openai import OpenAI
+
+
+def generate_local_assessment(structured: dict, recommendations: list[str], goal_label: str, question: str) -> str:
+    lines = [
+        f"Executive summary: The dataset was evaluated for the goal '{goal_label}'.",
+        (
+            "Key findings: "
+            f"Rows={structured['rows']}, "
+            f"Columns={structured['columns']}, "
+            f"Missing Cells={structured['missing_cells']}, "
+            f"Duplicate Rows={structured['duplicate_rows']}, "
+            f"Outliers={structured['outlier_count']}."
+        ),
+        f"Readiness score: {structured['score']}/100.",
+        f"Suitability: {structured['status']}.",
+        "Recommended fixes:",
+    ]
+
+    if recommendations:
+        lines.extend([f"- {item}" for item in recommendations])
+    else:
+        lines.append("- No major fixes recommended.")
+
+    if question:
+        lines.append(f"User question considered: {question}")
+
+    return "\n".join(lines)
+
+
+def ask_gpt(question: str, structured: dict, goal_label: str, recommendations: list[str]) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        return generate_local_assessment(structured, recommendations, goal_label, question)
+
+    prompt = f"""
+You are a senior data quality analyst.
+
+User Goal:
+{goal_label}
+
+Question:
+{question}
+
+Dataset Information:
+{structured}
+
+Recommendations Draft:
+{recommendations}
+
+Rules:
+- Do not use the phrase "Ready for AI"
+- Evaluate readiness strictly against the selected goal
+- Be practical and specific
+- Keep the answer structured and concise
+
+Provide:
+1. Executive summary
+2. Key findings
+3. Readiness score out of 100
+4. Whether the dataset is suitable for the selected goal
+5. Specific recommended fixes
+"""
+
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model="gpt-5",
+            input=prompt,
+        )
+
+        if hasattr(response, "output_text") and response.output_text:
+            return response.output_text
+
+        return str(response)
+
+    except Exception:
+        return generate_local_assessment(structured, recommendations, goal_label, question)
