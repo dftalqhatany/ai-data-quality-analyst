@@ -206,12 +206,6 @@ if st.session_state.question_submitted:
     render_dashboard(df, structured)
 
 
-if st.session_state.question_submitted:
-    st.subheader("Recommended Actions")
-    for rec in recommendations:
-        st.write(f"- {rec}")
-
-
 if st.session_state.pdf_bytes is not None:
     st.subheader("Download Report")
     st.download_button(
