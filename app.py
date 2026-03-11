@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📊 AI Data Quality Analyst")
+st.title("AI Data Quality Analyst")
 st.caption("Upload your file, choose your goal, and evaluate whether the dataset is ready for that purpose.")
 
 
@@ -77,7 +77,7 @@ def detect_outliers(df):
 # -----------------------
 # Goal-Based Readiness
 # -----------------------
-def assess_readiness(df, goal):
+def assess_readiness(df, goal_key):
     rows, cols = df.shape
     total_cells = max(rows * cols, 1)
 
@@ -88,7 +88,8 @@ def assess_readiness(df, goal):
     duplicate_ratio = (duplicate_rows / rows) if rows else 0
 
     numeric_cols = df.select_dtypes(include="number").shape[1]
-    object_cols = df.select_dtypes(include="object").shape[1]
+    object_cols = df.select_dtypes(include=["object", "category"]).shape[1]
+
     outliers = detect_outliers(df)
     total_outliers = sum(outliers.values())
 
@@ -98,7 +99,7 @@ def assess_readiness(df, goal):
 
     base_score = 100 - missing_penalty - duplicate_penalty - outlier_penalty
 
-    if goal == "Build Report":
+    if goal_key == "report":
         score = int(max(0, min(100, base_score + 8)))
         if score >= 75:
             status = "Ready for report building"
@@ -107,16 +108,16 @@ def assess_readiness(df, goal):
         else:
             status = "Not suitable for report building yet"
 
-    elif goal == "Run Analysis":
+    elif goal_key == "analysis":
         score = int(max(0, min(100, base_score)))
         if score >= 80:
-            status = "Ready for analysis"
+            status = "Ready for data analysis"
         elif score >= 60:
-            status = "Needs cleaning before analysis"
+            status = "Needs cleaning before data analysis"
         else:
             status = "Low data quality for analysis"
 
-    elif goal == "Build Model":
+    elif goal_key == "model":
         model_penalty = 0
 
         if numeric_cols == 0:
@@ -136,6 +137,7 @@ def assess_readiness(df, goal):
             status = "Needs preprocessing before model building"
         else:
             status = "Not suitable for model building yet"
+
     else:
         score = int(max(0, min(100, base_score)))
         status = "Goal not selected"
@@ -156,25 +158,27 @@ def assess_readiness(df, goal):
 # -----------------------
 # Recommendations by Goal
 # -----------------------
-def goal_recommendations(goal, structured):
+def goal_recommendations(goal_key, structured):
     recs = []
 
     if structured["missing_cells"] > 0:
         recs.append("Handle missing values before proceeding.")
+
     if structured["duplicate_rows"] > 0:
         recs.append("Remove duplicate rows to improve consistency.")
+
     if structured["outlier_count"] > 0:
         recs.append("Review numeric outliers and validate extreme values.")
 
-    if goal == "Build Report":
+    if goal_key == "report":
         recs.append("Ensure key business columns are complete for accurate reporting.")
         recs.append("Standardize labels and categories for cleaner report visuals.")
 
-    elif goal == "Run Analysis":
+    elif goal_key == "analysis":
         recs.append("Validate data types before running analytical workflows.")
         recs.append("Check column consistency and business logic across fields.")
 
-    elif goal == "Build Model":
+    elif goal_key == "model":
         recs.append("Encode categorical columns before model training.")
         recs.append("Split features and target clearly before building the model.")
         recs.append("Consider scaling numeric features if required by the algorithm.")
@@ -240,12 +244,11 @@ def build_outlier_chart(df):
 # -----------------------
 # Dashboard
 # -----------------------
-def render_dashboard(df, structured):
+def render_dashboard(df, structured, goal_label):
     st.subheader("Dashboard")
 
     score = structured["score"]
     status = structured["status"]
-    goal = structured["goal"]
 
     st.progress(score, text=f"Readiness Score: {score}/100")
 
@@ -255,7 +258,7 @@ def render_dashboard(df, structured):
     c3.metric("Missing Cells", structured["missing_cells"])
     c4.metric("Duplicate Rows", structured["duplicate_rows"])
 
-    st.info(f"Selected Goal: {goal}")
+    st.info(f"Selected Goal: {goal_label}")
 
     if "Ready" in status:
         st.success(status)
@@ -269,7 +272,10 @@ def render_dashboard(df, structured):
     with tab1:
         st.write("Missing Values by Column")
         missing = df.isna().sum()
-        missing_df = pd.DataFrame({"column": missing.index, "missing": missing.values})
+        missing_df = pd.DataFrame({
+            "column": missing.index,
+            "missing": missing.values
+        })
         missing_df = missing_df[missing_df["missing"] > 0]
 
         if not missing_df.empty:
@@ -280,7 +286,10 @@ def render_dashboard(df, structured):
     with tab2:
         st.write("Data Types Distribution")
         dtype_counts = df.dtypes.astype(str).value_counts()
-        dtype_df = pd.DataFrame({"dtype": dtype_counts.index, "count": dtype_counts.values}).set_index("dtype")
+        dtype_df = pd.DataFrame({
+            "dtype": dtype_counts.index,
+            "count": dtype_counts.values
+        }).set_index("dtype")
         st.bar_chart(dtype_df)
 
     with tab3:
@@ -303,7 +312,7 @@ def render_dashboard(df, structured):
 def draw_wrapped_text(pdf, text, x, y, width_chars=95, line_height=14, font_name="Helvetica", font_size=10):
     pdf.setFont(font_name, font_size)
 
-    for paragraph in text.split("\n"):
+    for paragraph in str(text).split("\n"):
         wrapped_lines = wrap(paragraph, width=width_chars) if paragraph.strip() else [""]
         for line in wrapped_lines:
             if y < 70:
@@ -329,7 +338,15 @@ def draw_image_on_pdf(pdf, image_buffer, title, y):
     y -= 20
 
     img = ImageReader(image_buffer)
-    pdf.drawImage(img, 50, y - 220, width=500, height=220, preserveAspectRatio=True, mask="auto")
+    pdf.drawImage(
+        img,
+        50,
+        y - 220,
+        width=500,
+        height=220,
+        preserveAspectRatio=True,
+        mask="auto"
+    )
     y -= 250
 
     return y
@@ -338,7 +355,7 @@ def draw_image_on_pdf(pdf, image_buffer, title, y):
 # -----------------------
 # PDF Report
 # -----------------------
-def build_pdf_report(filename, question, structured, analyses, df, recommendations):
+def build_pdf_report(filename, question, structured, analyses, df, recommendations, goal_label):
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
 
@@ -351,7 +368,7 @@ def build_pdf_report(filename, question, structured, analyses, df, recommendatio
     pdf.setFont("Helvetica", 11)
     pdf.drawString(50, y, f"File: {filename}")
     y -= 18
-    pdf.drawString(50, y, f"Goal: {structured['goal']}")
+    pdf.drawString(50, y, f"Goal: {goal_label}")
     y -= 18
     pdf.drawString(50, y, f"Readiness Score: {structured['score']}/100")
     y -= 18
@@ -381,13 +398,6 @@ def build_pdf_report(filename, question, structured, analyses, df, recommendatio
     y = draw_wrapped_text(pdf, "\n".join(overview_lines), 50, y, width_chars=90)
     y -= 10
 
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, y, "Recommendations")
-    y -= 16
-    rec_text = "\n".join([f"- {r}" for r in recommendations])
-    y = draw_wrapped_text(pdf, rec_text, 50, y, width_chars=92)
-    y -= 16
-
     for analysis in analyses:
         if y < 140:
             pdf.showPage()
@@ -399,6 +409,13 @@ def build_pdf_report(filename, question, structured, analyses, df, recommendatio
 
         y = draw_wrapped_text(pdf, analysis["content"], 50, y, width_chars=95)
         y -= 16
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, y, "Recommended Actions")
+    y -= 16
+    rec_text = "\n".join([f"- {r}" for r in recommendations]) if recommendations else "- No actions recommended."
+    y = draw_wrapped_text(pdf, rec_text, 50, y, width_chars=92)
+    y -= 16
 
     missing_chart = build_missing_chart(df)
     dtype_chart = build_dtype_chart(df)
@@ -416,12 +433,12 @@ def build_pdf_report(filename, question, structured, analyses, df, recommendatio
 # -----------------------
 # GPT
 # -----------------------
-def ask_gpt(client, question, structured, mode):
+def ask_gpt(client, question, structured, mode, goal_label):
     prompt = f"""
 You are a senior data quality analyst.
 
 User Goal:
-{structured['goal']}
+{goal_label}
 
 Question:
 {question}
@@ -471,8 +488,8 @@ if "pdf_bytes" not in st.session_state:
 if "submitted_message" not in st.session_state:
     st.session_state.submitted_message = ""
 
-if "last_goal" not in st.session_state:
-    st.session_state.last_goal = None
+if "last_goal_key" not in st.session_state:
+    st.session_state.last_goal_key = None
 
 
 # -----------------------
@@ -493,41 +510,55 @@ df = load_dataframe(uploaded_file)
 # -----------------------
 # Goal Selection
 # -----------------------
-goal = st.radio(
+goal_options = {
+    "report": "Build Report",
+    "analysis": "Data Analysis",
+    "model": "Build Model"
+}
+
+goal_key = st.radio(
     "Select your goal",
-    ["Build Report", "Data Analysis", "Build Model"],
+    options=list(goal_options.keys()),
+    format_func=lambda x: goal_options[x],
     horizontal=True
 )
 
+goal_label = goal_options[goal_key]
+
 overview = dataframe_overview(df)
-score, status, extra = assess_readiness(df, goal)
+score, status, extra = assess_readiness(df, goal_key)
 
 structured = {
     **overview,
     **extra,
     "score": score,
     "status": status,
-    "goal": goal
+    "goal": goal_label
 }
 
-recommendations = goal_recommendations(goal, structured)
+recommendations = goal_recommendations(goal_key, structured)
 
-if st.session_state.last_goal != goal:
-    st.session_state.last_goal = goal
+if st.session_state.last_goal_key != goal_key:
+    st.session_state.last_goal_key = goal_key
     st.session_state.submitted_message = ""
 
 
 # -----------------------
-# Main Action Selector
+# Main Action Title
 # -----------------------
-action_label = {
-    "Build Report": "Build Report Readiness Assessment",
-    "Data Analysis": "Run Analysis Readiness Assessment",
-    "Build Model": "Build Model Readiness Assessment"
-}[goal]
+action_label_map = {
+    "report": "Build Report Readiness Assessment",
+    "analysis": "Data Analysis Readiness Assessment",
+    "model": "Build Model Readiness Assessment"
+}
 
+action_label = action_label_map.get(goal_key, "Dataset Readiness Assessment")
 st.markdown(f"### {action_label}")
 
+
+# -----------------------
+# Question Form
+# -----------------------
 with st.form("question_form"):
     question = st.text_area(
         "Ask your question",
@@ -544,10 +575,18 @@ if submitted:
     with st.spinner("Sending request and analyzing dataset..."):
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        answer = ask_gpt(client, question or "Assess the dataset for the selected goal.", structured, "Auto")
+        final_question = question or "Assess the dataset for the selected goal."
+
+        answer = ask_gpt(
+            client=client,
+            question=final_question,
+            structured=structured,
+            mode="Auto",
+            goal_label=goal_label
+        )
 
         st.session_state.analyses = [{
-            "title": f"Primary Assessment — {goal}",
+            "title": f"Primary Assessment — {goal_label}",
             "mode": "Auto",
             "content": answer
         }]
@@ -556,12 +595,13 @@ if submitted:
         st.session_state.submitted_message = "Request sent successfully ✅"
 
         st.session_state.pdf_bytes = build_pdf_report(
-            uploaded_file.name,
-            question or "Assess the dataset for the selected goal.",
-            structured,
-            st.session_state.analyses,
-            df,
-            recommendations
+            filename=uploaded_file.name,
+            question=final_question,
+            structured=structured,
+            analyses=st.session_state.analyses,
+            df=df,
+            recommendations=recommendations,
+            goal_label=goal_label
         )
 
 if st.session_state.submitted_message:
@@ -569,9 +609,10 @@ if st.session_state.submitted_message:
 
 
 # -----------------------
-# Quick Readiness Summary
+# Readiness Summary
 # -----------------------
 st.subheader("Readiness Summary")
+
 c1, c2 = st.columns([1, 2])
 
 with c1:
@@ -584,14 +625,6 @@ with c2:
         st.warning(structured["status"])
     else:
         st.error(structured["status"])
-
-
-# -----------------------
-# Recommendations UI
-# -----------------------
-with st.expander("Recommended Actions", expanded=True):
-    for rec in recommendations:
-        st.write(f"- {rec}")
 
 
 # -----------------------
@@ -610,7 +643,7 @@ if st.session_state.question_submitted:
     st.subheader("Dataset Preview")
     st.dataframe(df.head(), use_container_width=True)
 
-    render_dashboard(df, structured)
+    render_dashboard(df, structured, goal_label)
 
 
 # -----------------------
@@ -639,11 +672,14 @@ if apply_mode:
     with st.spinner("Adding analysis..."):
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+        final_question = question or "Assess the dataset for the selected goal."
+
         answer = ask_gpt(
-            client,
-            question or "Assess the dataset for the selected goal.",
-            structured,
-            mode
+            client=client,
+            question=final_question,
+            structured=structured,
+            mode=mode,
+            goal_label=goal_label
         )
 
         st.session_state.analyses.append({
@@ -653,15 +689,25 @@ if apply_mode:
         })
 
         st.session_state.pdf_bytes = build_pdf_report(
-            uploaded_file.name,
-            question or "Assess the dataset for the selected goal.",
-            structured,
-            st.session_state.analyses,
-            df,
-            recommendations
+            filename=uploaded_file.name,
+            question=final_question,
+            structured=structured,
+            analyses=st.session_state.analyses,
+            df=df,
+            recommendations=recommendations,
+            goal_label=goal_label
         )
 
     st.success("Analysis added successfully ✅")
+
+
+# -----------------------
+# Recommended Actions
+# -----------------------
+if st.session_state.question_submitted:
+    st.subheader("Recommended Actions")
+    for rec in recommendations:
+        st.write(f"- {rec}")
 
 
 # -----------------------
