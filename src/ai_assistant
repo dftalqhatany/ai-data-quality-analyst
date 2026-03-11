@@ -3,14 +3,25 @@ import os
 from openai import OpenAI
 
 
+def contains_arabic(text: str) -> bool:
+    if not text:
+        return False
+    return any("\u0600" <= ch <= "\u06FF" for ch in str(text))
+
+
 def ask_gpt(question: str, structured: dict, goal_label: str, recommendations: list[str]) -> str:
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is missing. Please configure it before running the app.")
 
+    response_language = "Arabic" if contains_arabic(question) else "English"
+
     prompt = f"""
 You are a senior data quality analyst.
+
+Response language:
+{response_language}
 
 User Goal:
 {goal_label}
@@ -29,8 +40,8 @@ Rules:
 - Evaluate readiness strictly against the selected goal
 - Be practical and specific
 - Keep the answer structured and concise
-- If the user question is in Arabic, answer in Arabic
-- If the user question is in English, answer in English
+- Respond fully in {response_language}
+- If the response language is Arabic, write clear professional Arabic
 
 Provide:
 1. Executive summary
