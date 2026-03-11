@@ -104,3 +104,32 @@ def assess_readiness(df: pd.DataFrame, goal_key: str):
     }
 
     return score, status, summary
+
+
+def goal_recommendations(goal_key: str, structured: dict) -> list[str]:
+    recs = []
+
+    if structured["missing_cells"] > 0:
+        recs.append("Handle missing values before proceeding.")
+
+    if structured["duplicate_rows"] > 0:
+        recs.append("Remove duplicate rows to improve consistency.")
+
+    if structured["outlier_count"] > 0:
+        recs.append("Review numeric outliers and validate extreme values.")
+
+    if goal_key == "report":
+        recs.append("Ensure key business columns are complete for accurate reporting.")
+        recs.append("Standardize labels and categories for cleaner report visuals.")
+
+    elif goal_key == "analysis":
+        recs.append("Validate data types before running analytical workflows.")
+        recs.append("Check column consistency and business logic across fields.")
+
+    elif goal_key == "model":
+        recs.append("Encode categorical columns before model training.")
+        recs.append("Split features and target clearly before building the model.")
+        recs.append("Consider scaling numeric features if required by the algorithm.")
+        recs.append("Review class balance if this dataset will be used for classification.")
+
+    return recs
