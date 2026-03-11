@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.ai_assistant import ask_gpt
-from src.analyzer import assess_readiness, detect_outliers, goal_recommendations
+from src.analyzer import assess_readiness, detect_outliers
 from src.io_utils import dataframe_overview, load_dataframe
 from src.pdf_report import build_pdf_report
 
