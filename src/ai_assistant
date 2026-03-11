@@ -29,6 +29,8 @@ Rules:
 - Evaluate readiness strictly against the selected goal
 - Be practical and specific
 - Keep the answer structured and concise
+- If the user question is in Arabic, answer in Arabic
+- If the user question is in English, answer in English
 
 Provide:
 1. Executive summary
