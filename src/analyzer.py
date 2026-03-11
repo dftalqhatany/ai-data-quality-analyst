@@ -1,190 +1,135 @@
 import pandas as pd
 
 
-def calculate_quality_score(df):
+def detect_outliers(df: pd.DataFrame) -> dict:
+    numeric_df = df.select_dtypes(include="number")
+    results = {}
+
+    for col in numeric_df.columns:
+        series = numeric_df[col].dropna()
+
+        if len(series) < 4:
+            continue
+
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+        iqr = q3 - q1
+
+        if iqr == 0:
+            results[col] = 0
+            continue
+
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+
+        outliers = series[(series < lower) | (series > upper)]
+        results[col] = int(len(outliers))
+
+    return results
+
+
+def assess_readiness(df: pd.DataFrame, goal_key: str):
     rows, cols = df.shape
     total_cells = max(rows * cols, 1)
 
-    missing_counts = df.isna().sum()
+    missing_cells = int(df.isna().sum().sum())
     duplicate_rows = int(df.duplicated().sum())
 
-    missing_penalty = min(40, (missing_counts.sum() / total_cells) * 100)
-    duplicate_penalty = min(20, (duplicate_rows / rows) * 100 if rows else 0)
+    missing_ratio = missing_cells / total_cells
+    duplicate_ratio = (duplicate_rows / rows) if rows else 0
 
-    numeric_df = df.select_dtypes(include=["number"])
-    outlier_penalty = 0
+    numeric_cols = int(df.select_dtypes(include="number").shape[1])
+    text_cols = int(df.select_dtypes(include=["object", "category"]).shape[1])
 
-    if not numeric_df.empty:
-        total_outliers = 0
-        total_numeric_values = 0
+    outlier_map = detect_outliers(df)
+    total_outliers = int(sum(outlier_map.values()))
 
-        for col in numeric_df.columns:
-            series = numeric_df[col].dropna()
-            total_numeric_values += len(series)
+    missing_penalty = min(40, missing_ratio * 100)
+    duplicate_penalty = min(20, duplicate_ratio * 100)
+    outlier_penalty = min(15, (total_outliers / max(rows, 1)) * 100)
 
-            if len(series) > 0:
-                q1 = series.quantile(0.25)
-                q3 = series.quantile(0.75)
-                iqr = q3 - q1
+    base_score = 100 - missing_penalty - duplicate_penalty - outlier_penalty
 
-                if iqr != 0:
-                    lower = q1 - 1.5 * iqr
-                    upper = q3 + 1.5 * iqr
-                    total_outliers += int(((series < lower) | (series > upper)).sum())
+    if goal_key == "report":
+        score = int(max(0, min(100, base_score + 8)))
+        if score >= 75:
+            status = "Suitable for report building"
+        elif score >= 55:
+            status = "Needs minor cleaning before report building"
+        else:
+            status = "Not suitable for report building yet"
 
-        if total_numeric_values > 0:
-            outlier_penalty = min(20, (total_outliers / total_numeric_values) * 100)
+    elif goal_key == "analysis":
+        score = int(max(0, min(100, base_score)))
+        if score >= 80:
+            status = "Suitable for data analysis"
+        elif score >= 60:
+            status = "Needs cleaning before data analysis"
+        else:
+            status = "Low data quality for analysis"
 
-    quality_score = int(max(0, 100 - missing_penalty - duplicate_penalty - outlier_penalty))
+    elif goal_key == "model":
+        model_penalty = 0
 
-    if quality_score > 85:
-        readiness = "Ready for AI"
-    elif quality_score > 65:
-        readiness = "Needs Cleaning"
+        if numeric_cols == 0:
+            model_penalty += 20
+        if missing_ratio > 0.10:
+            model_penalty += 10
+        if duplicate_ratio > 0.05:
+            model_penalty += 8
+
+        score = int(max(0, min(100, base_score - 8 - model_penalty)))
+
+        if score >= 85:
+            status = "Suitable for model building"
+        elif score >= 65:
+            status = "Needs preprocessing before model building"
+        else:
+            status = "Not suitable for model building yet"
+
     else:
-        readiness = "High Risk Dataset"
+        score = int(max(0, min(100, base_score)))
+        status = "Goal not selected"
 
-    return quality_score, readiness
-
-
-def analyze_dataset(df, analysis_mode="Full Quality Audit"):
-    rows, cols = df.shape
-    missing_counts = df.isna().sum()
-    duplicate_rows = int(df.duplicated().sum())
-    numeric_df = df.select_dtypes(include=["number"])
-
-    quality_score, readiness = calculate_quality_score(df)
-
-    result = {
-        "analysis_mode": analysis_mode,
+    summary = {
         "rows": rows,
         "columns": cols,
-        "quality_score": quality_score,
-        "readiness": readiness,
+        "missing_cells": missing_cells,
+        "duplicate_rows": duplicate_rows,
+        "numeric_columns": numeric_cols,
+        "text_columns": text_cols,
+        "outlier_count": total_outliers,
+        "score": score,
+        "status": status,
     }
 
-    if analysis_mode == "Missing Values":
-        missing_by_column = [
-            {"column": c, "missing": int(v)}
-            for c, v in missing_counts.items() if v > 0
-        ]
+    return score, status, summary
 
-        result.update({
-            "issue_summary": [
-                {"issue_type": "Missing Values", "count": int(missing_counts.sum())}
-            ],
-            "total_missing_values": int(missing_counts.sum()),
-            "missing_by_column": missing_by_column
-        })
-        return result
 
-    elif analysis_mode == "Duplicate Rows":
-        result.update({
-            "issue_summary": [
-                {"issue_type": "Duplicate Rows", "count": duplicate_rows}
-            ],
-            "duplicate_rows": duplicate_rows
-        })
-        return result
+def goal_recommendations(goal_key: str, structured: dict) -> list[str]:
+    recs = []
 
-    elif analysis_mode == "Data Types Check":
-        dtype_summary = {
-            col: str(dtype) for col, dtype in df.dtypes.items()
-        }
+    if structured["missing_cells"] > 0:
+        recs.append("Handle missing values before proceeding.")
 
-        mixed_type_columns = []
-        for col in df.columns:
-            non_null_types = df[col].dropna().map(type).astype(str).unique().tolist()
-            if len(non_null_types) > 1:
-                mixed_type_columns.append({
-                    "column": col,
-                    "types": non_null_types
-                })
+    if structured["duplicate_rows"] > 0:
+        recs.append("Remove duplicate rows to improve consistency.")
 
-        result.update({
-            "issue_summary": [
-                {"issue_type": "Mixed Data Types", "count": len(mixed_type_columns)}
-            ],
-            "dtypes": dtype_summary,
-            "mixed_type_columns": mixed_type_columns
-        })
-        return result
+    if structured["outlier_count"] > 0:
+        recs.append("Review numeric outliers and validate extreme values.")
 
-    elif analysis_mode == "Outlier Detection":
-        outlier_summary = []
+    if goal_key == "report":
+        recs.append("Ensure key business columns are complete for accurate reporting.")
+        recs.append("Standardize labels and categories for cleaner report visuals.")
 
-        for col in numeric_df.columns:
-            q1 = numeric_df[col].quantile(0.25)
-            q3 = numeric_df[col].quantile(0.75)
-            iqr = q3 - q1
+    elif goal_key == "analysis":
+        recs.append("Validate data types before running analytical workflows.")
+        recs.append("Check column consistency and business logic across fields.")
 
-            if iqr == 0:
-                outlier_count = 0
-            else:
-                lower = q1 - 1.5 * iqr
-                upper = q3 + 1.5 * iqr
-                outlier_count = int(((numeric_df[col] < lower) | (numeric_df[col] > upper)).sum())
+    elif goal_key == "model":
+        recs.append("Encode categorical columns before model training.")
+        recs.append("Split features and target clearly before building the model.")
+        recs.append("Consider scaling numeric features if required by the algorithm.")
+        recs.append("Review class balance if this dataset will be used for classification.")
 
-            outlier_summary.append({
-                "column": col,
-                "outliers": outlier_count
-            })
-
-        result.update({
-            "issue_summary": [
-                {"issue_type": "Outliers", "count": sum(x["outliers"] for x in outlier_summary)}
-            ],
-            "outlier_summary": outlier_summary
-        })
-        return result
-
-    elif analysis_mode == "Column Consistency":
-        consistency_issues = []
-
-        for col in df.select_dtypes(include=["object"]).columns:
-            stripped = df[col].dropna().astype(str)
-
-            leading_trailing_spaces = int((stripped != stripped.str.strip()).sum())
-            case_variants = int(stripped.str.lower().nunique() != stripped.nunique())
-
-            if leading_trailing_spaces > 0 or case_variants > 0:
-                consistency_issues.append({
-                    "column": col,
-                    "leading_trailing_spaces": leading_trailing_spaces,
-                    "case_variants_detected": case_variants
-                })
-
-        result.update({
-            "issue_summary": [
-                {"issue_type": "Column Consistency Issues", "count": len(consistency_issues)}
-            ],
-            "consistency_issues": consistency_issues
-        })
-        return result
-
-    missing_by_column = [
-        {"column": c, "missing": int(v)}
-        for c, v in missing_counts.items() if v > 0
-    ]
-
-    column_risks = []
-    for col in df.columns:
-        miss = int(missing_counts[col])
-        if miss > 0:
-            column_risks.append({
-                "column": col,
-                "risk": "missing values",
-                "count": miss
-            })
-
-    result.update({
-        "issue_summary": [
-            {"issue_type": "Missing Values", "count": int(missing_counts.sum())},
-            {"issue_type": "Duplicate Rows", "count": duplicate_rows}
-        ],
-        "total_missing_values": int(missing_counts.sum()),
-        "missing_by_column": missing_by_column,
-        "column_risks": column_risks
-    })
-
-    return result
+    return recs
