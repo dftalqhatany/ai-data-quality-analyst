@@ -130,7 +130,7 @@ def draw_image_on_pdf(pdf, image_buffer, title, y):
     return y
 
 
-def build_pdf_report(filename, question, structured, analysis_text, df, goal_label):
+def build_pdf_report(filename, question, structured, analysis_text, df, recommendations, goal_label):
     register_arabic_font()
 
     buffer = BytesIO()
