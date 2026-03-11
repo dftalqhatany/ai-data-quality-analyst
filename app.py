@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.ai_assistant import ask_gpt
-from src.analyzer import assess_readiness, detect_outliers
+from src.analyzer import assess_readiness, detect_outliers, goal_recommendations
 from src.io_utils import dataframe_overview, load_dataframe
 from src.pdf_report import build_pdf_report
 
@@ -128,6 +128,7 @@ structured = {
     "goal": goal_label,
 }
 
+recommendations = goal_recommendations(goal_key, structured)
 
 action_label_map = {
     "report": "Build Report Readiness Assessment",
@@ -161,6 +162,7 @@ if submitted:
                 question=final_question,
                 structured=structured,
                 goal_label=goal_label,
+                recommendations=recommendations,
             )
 
             pdf_bytes = build_pdf_report(
@@ -169,6 +171,7 @@ if submitted:
                 structured=structured,
                 analysis_text=analysis_text,
                 df=df,
+                recommendations=recommendations,
                 goal_label=goal_label,
             )
 
