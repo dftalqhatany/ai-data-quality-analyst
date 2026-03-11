@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
+import urllib.request
 
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -17,15 +18,13 @@ PAGE_WIDTH, PAGE_HEIGHT = A4
 RIGHT_MARGIN_X = 545
 
 ARABIC_FONT_NAME = "Cairo"
-ARABIC_FONT_PATH = Path("assets/fonts/Cairo-Regular.ttf")
+ARABIC_FONT_PATH = Path("Cairo-Regular.ttf")
+FONT_URL = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo-Regular.ttf"
 
 
 def register_arabic_font():
     if not ARABIC_FONT_PATH.exists():
-        raise FileNotFoundError(
-            f"Arabic font not found: {ARABIC_FONT_PATH}. "
-            "Please add a valid Arabic TTF font file to assets/fonts/."
-        )
+        urllib.request.urlretrieve(FONT_URL, ARABIC_FONT_PATH)
 
     registered_fonts = pdfmetrics.getRegisteredFontNames()
     if ARABIC_FONT_NAME not in registered_fonts:
