@@ -3,38 +3,11 @@ import os
 from openai import OpenAI
 
 
-def generate_local_assessment(structured: dict, recommendations: list[str], goal_label: str, question: str) -> str:
-    lines = [
-        f"Executive summary: The dataset was evaluated for the goal '{goal_label}'.",
-        (
-            "Key findings: "
-            f"Rows={structured['rows']}, "
-            f"Columns={structured['columns']}, "
-            f"Missing Cells={structured['missing_cells']}, "
-            f"Duplicate Rows={structured['duplicate_rows']}, "
-            f"Outliers={structured['outlier_count']}."
-        ),
-        f"Readiness score: {structured['score']}/100.",
-        f"Suitability: {structured['status']}.",
-        "Recommended fixes:",
-    ]
-
-    if recommendations:
-        lines.extend([f"- {item}" for item in recommendations])
-    else:
-        lines.append("- No major fixes recommended.")
-
-    if question:
-        lines.append(f"User question considered: {question}")
-
-    return "\n".join(lines)
-
-
 def ask_gpt(question: str, structured: dict, goal_label: str, recommendations: list[str]) -> str:
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
-        return generate_local_assessment(structured, recommendations, goal_label, question)
+        raise RuntimeError("OPENAI_API_KEY is missing. Please configure it before running the app.")
 
     prompt = f"""
 You are a senior data quality analyst.
@@ -65,17 +38,14 @@ Provide:
 5. Specific recommended fixes
 """
 
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.responses.create(
-            model="gpt-5",
-            input=prompt,
-        )
+    client = OpenAI(api_key=api_key)
 
-        if hasattr(response, "output_text") and response.output_text:
-            return response.output_text
+    response = client.responses.create(
+        model="gpt-5",
+        input=prompt,
+    )
 
-        return str(response)
+    if hasattr(response, "output_text") and response.output_text:
+        return response.output_text
 
-    except Exception:
-        return generate_local_assessment(structured, recommendations, goal_label, question)
+    return str(response)
