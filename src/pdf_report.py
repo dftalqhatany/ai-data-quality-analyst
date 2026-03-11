@@ -18,8 +18,8 @@ PAGE_WIDTH, PAGE_HEIGHT = A4
 RIGHT_MARGIN_X = 545
 
 ARABIC_FONT_NAME = "Cairo"
-ARABIC_FONT_PATH = Path("Cairo-Regular.ttf")
-FONT_URL = "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo-Regular.ttf"
+ARABIC_FONT_PATH = Path("Cairo.ttf")
+FONT_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf"
 
 
 def register_arabic_font():
@@ -138,12 +138,14 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
 
     y = 800
 
-    report_title = "تقرير جودة البيانات" if (
+    is_arabic_report = (
         contains_arabic(question)
         or contains_arabic(analysis_text)
         or contains_arabic(goal_label)
         or any(contains_arabic(r) for r in recommendations)
-    ) else "AI Data Quality Report"
+    )
+
+    report_title = "تقرير جودة البيانات" if is_arabic_report else "AI Data Quality Report"
 
     if contains_arabic(report_title):
         pdf.setFont(ARABIC_FONT_NAME, 15)
@@ -175,7 +177,7 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
     )
     y -= 16
 
-    overview_title = "نظرة عامة على البيانات" if contains_arabic(question) or contains_arabic(analysis_text) else "Dataset Overview"
+    overview_title = "نظرة عامة على البيانات" if is_arabic_report else "Dataset Overview"
     y = draw_section_title(pdf, overview_title, y)
 
     overview_lines = [
@@ -219,10 +221,8 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
     recommendations_title = "الإجراءات المقترحة" if any(contains_arabic(r) for r in recommendations) else "Recommended Actions"
     y = draw_section_title(pdf, recommendations_title, y)
 
-    if recommendations:
-        rec_text = "\n".join([f"- {r}" for r in recommendations])
-    else:
-        rec_text = "- No actions recommended."
+    rec_lines = recommendations or ["No actions recommended."]
+    rec_text = "\n".join([f"- {r}" for r in rec_lines])
 
     rec_is_arabic = contains_arabic(rec_text)
     y = draw_wrapped_text(
