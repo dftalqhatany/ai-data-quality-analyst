@@ -9,7 +9,7 @@ def contains_arabic(text: str) -> bool:
     return any("\u0600" <= ch <= "\u06FF" for ch in str(text))
 
 
-def ask_gpt(question: str, structured: dict, goal_label: str, recommendations: list[str]) -> str:
+def ask_gpt(question: str, structured: dict, goal_label: str) -> str:
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
@@ -31,9 +31,6 @@ Question:
 
 Dataset Information:
 {structured}
-
-Recommendations Draft:
-{recommendations}
 
 Rules:
 - Do not use the phrase "Ready for AI"
