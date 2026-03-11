@@ -102,7 +102,7 @@ def assess_readiness(df, goal_key):
     if goal_key == "report":
         score = int(max(0, min(100, base_score + 8)))
         if score >= 75:
-            status = "Ready for report building"
+            status = "Suitable for report building"
         elif score >= 55:
             status = "Needs minor cleaning before report building"
         else:
@@ -111,7 +111,7 @@ def assess_readiness(df, goal_key):
     elif goal_key == "analysis":
         score = int(max(0, min(100, base_score)))
         if score >= 80:
-            status = "Ready for data analysis"
+            status = "Suitable for data analysis"
         elif score >= 60:
             status = "Needs cleaning before data analysis"
         else:
@@ -132,7 +132,7 @@ def assess_readiness(df, goal_key):
         score = int(max(0, min(100, base_score - 8 - model_penalty)))
 
         if score >= 85:
-            status = "Ready for model building"
+            status = "Suitable for model building"
         elif score >= 65:
             status = "Needs preprocessing before model building"
         else:
@@ -244,11 +244,10 @@ def build_outlier_chart(df):
 # -----------------------
 # Dashboard
 # -----------------------
-def render_dashboard(df, structured, goal_label):
+def render_dashboard(df, structured):
     st.subheader("Dashboard")
 
     score = structured["score"]
-    status = structured["status"]
 
     st.progress(score, text=f"Readiness Score: {score}/100")
 
@@ -257,15 +256,6 @@ def render_dashboard(df, structured, goal_label):
     c2.metric("Columns", structured["columns"])
     c3.metric("Missing Cells", structured["missing_cells"])
     c4.metric("Duplicate Rows", structured["duplicate_rows"])
-
-    st.info(f"Selected Goal: {goal_label}")
-
-    if "Ready" in status:
-        st.success(status)
-    elif "Needs" in status:
-        st.warning(status)
-    else:
-        st.error(status)
 
     tab1, tab2, tab3 = st.tabs(["Missing Values", "Data Types", "Outliers"])
 
@@ -433,7 +423,7 @@ def build_pdf_report(filename, question, structured, analyses, df, recommendatio
 # -----------------------
 # GPT
 # -----------------------
-def ask_gpt(client, question, structured, mode, goal_label):
+def ask_gpt(client, question, structured, goal_label):
     prompt = f"""
 You are a senior data quality analyst.
 
@@ -442,9 +432,6 @@ User Goal:
 
 Question:
 {question}
-
-Analysis Mode:
-{mode}
 
 Dataset Information:
 {structured}
@@ -458,7 +445,7 @@ Provide:
 1. Executive summary
 2. Key findings
 3. Readiness score out of 100
-4. Whether the dataset is ready for the selected goal
+4. Whether the dataset is suitable for the selected goal
 5. Specific recommended fixes
 """
 
@@ -565,7 +552,9 @@ with st.form("question_form"):
         placeholder="Example: Is this dataset suitable for the selected goal?"
     )
 
-    submitted = st.form_submit_button("Send")
+    left_space, button_col = st.columns([6, 1])
+    with button_col:
+        submitted = st.form_submit_button("Send", use_container_width=True)
 
 
 # -----------------------
@@ -581,13 +570,11 @@ if submitted:
             client=client,
             question=final_question,
             structured=structured,
-            mode="Auto",
             goal_label=goal_label
         )
 
         st.session_state.analyses = [{
             "title": f"Primary Assessment — {goal_label}",
-            "mode": "Auto",
             "content": answer
         }]
 
@@ -613,18 +600,11 @@ if st.session_state.submitted_message:
 # -----------------------
 st.subheader("Readiness Summary")
 
-c1, c2 = st.columns([1, 2])
-
-with c1:
-    st.metric("Score", f"{structured['score']}/100")
-
-with c2:
-    if "Ready" in structured["status"]:
-        st.success(structured["status"])
-    elif "Needs" in structured["status"]:
-        st.warning(structured["status"])
-    else:
-        st.error(structured["status"])
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Score", f"{structured['score']}/100")
+c2.metric("Rows", structured["rows"])
+c3.metric("Columns", structured["columns"])
+c4.metric("Missing Cells", structured["missing_cells"])
 
 
 # -----------------------
@@ -643,62 +623,7 @@ if st.session_state.question_submitted:
     st.subheader("Dataset Preview")
     st.dataframe(df.head(), use_container_width=True)
 
-    render_dashboard(df, structured, goal_label)
-
-
-# -----------------------
-# Sidebar Extra Analyses
-# -----------------------
-st.sidebar.header("Additional Analyses")
-
-mode = st.sidebar.selectbox(
-    "Choose an additional analysis",
-    [
-        "Select analysis",
-        "Missing Values",
-        "Duplicate Rows",
-        "Data Types Check",
-        "Outlier Detection",
-    ],
-    disabled=not st.session_state.question_submitted
-)
-
-apply_mode = st.sidebar.button(
-    "Add Analysis",
-    disabled=not st.session_state.question_submitted or mode == "Select analysis"
-)
-
-if apply_mode:
-    with st.spinner("Adding analysis..."):
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-        final_question = question or "Assess the dataset for the selected goal."
-
-        answer = ask_gpt(
-            client=client,
-            question=final_question,
-            structured=structured,
-            mode=mode,
-            goal_label=goal_label
-        )
-
-        st.session_state.analyses.append({
-            "title": f"Additional Analysis — {mode}",
-            "mode": mode,
-            "content": answer
-        })
-
-        st.session_state.pdf_bytes = build_pdf_report(
-            filename=uploaded_file.name,
-            question=final_question,
-            structured=structured,
-            analyses=st.session_state.analyses,
-            df=df,
-            recommendations=recommendations,
-            goal_label=goal_label
-        )
-
-    st.success("Analysis added successfully ✅")
+    render_dashboard(df, structured)
 
 
 # -----------------------
