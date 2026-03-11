@@ -38,8 +38,8 @@ def contains_arabic(text: str) -> bool:
 
 
 def prepare_arabic_text(text: str) -> str:
-    reshaped_text = arabic_reshaper.reshape(str(text))
-    return get_display(reshaped_text)
+    reshaped = arabic_reshaper.reshape(str(text))
+    return get_display(reshaped)
 
 
 def normalize_pdf_text(text: str) -> str:
@@ -59,17 +59,7 @@ def draw_section_title(pdf, title: str, y: int):
     return y - 16
 
 
-def draw_wrapped_text(
-    pdf,
-    text,
-    x,
-    y,
-    width_chars=95,
-    line_height=14,
-    font_name="Helvetica",
-    font_size=10,
-    rtl=False,
-):
+def draw_wrapped_text(pdf, text, x, y, width_chars=95, line_height=14, font_name="Helvetica", font_size=10, rtl=False):
     pdf.setFont(font_name, font_size)
 
     for paragraph in str(text).split("\n"):
@@ -94,12 +84,14 @@ def draw_wrapped_text(
 
 def draw_key_value_line(pdf, label: str, value: str, y: int):
     full_text = f"{label}: {value}"
+
     if contains_arabic(full_text):
         pdf.setFont(ARABIC_FONT_NAME, 11)
         pdf.drawRightString(RIGHT_MARGIN_X, y, normalize_pdf_text(full_text))
     else:
         pdf.setFont("Helvetica", 11)
         pdf.drawString(50, y, full_text)
+
     return y - 18
 
 
@@ -116,6 +108,7 @@ def draw_image_on_pdf(pdf, image_buffer, title, y):
     y -= 20
 
     img = ImageReader(image_buffer)
+
     pdf.drawImage(
         img,
         50,
@@ -125,12 +118,12 @@ def draw_image_on_pdf(pdf, image_buffer, title, y):
         preserveAspectRatio=True,
         mask="auto",
     )
-    y -= 250
 
+    y -= 250
     return y
 
 
-def build_pdf_report(filename, question, structured, analysis_text, df, recommendations, goal_label):
+def build_pdf_report(filename, question, structured, analysis_text, df):
     register_arabic_font()
 
     buffer = BytesIO()
@@ -138,14 +131,7 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
 
     y = 800
 
-    is_arabic_report = (
-        contains_arabic(question)
-        or contains_arabic(analysis_text)
-        or contains_arabic(goal_label)
-        or any(contains_arabic(r) for r in recommendations)
-    )
-
-    report_title = "تقرير جودة البيانات" if is_arabic_report else "AI Data Quality Report"
+    report_title = "تقرير جودة البيانات" if contains_arabic(question) else "Data Quality Report"
 
     if contains_arabic(report_title):
         pdf.setFont(ARABIC_FONT_NAME, 15)
@@ -153,21 +139,23 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
     else:
         pdf.setFont("Helvetica-Bold", 15)
         pdf.drawString(50, y, report_title)
+
     y -= 30
 
     y = draw_key_value_line(pdf, "File", filename, y)
-    y = draw_key_value_line(pdf, "Goal", goal_label, y)
-    y = draw_key_value_line(pdf, "Readiness Score", f"{structured['score']}/100", y)
+    y = draw_key_value_line(pdf, "Data Quality Score", f"{structured['score']}/100", y)
     y = draw_key_value_line(pdf, "Status", structured["status"], y)
+
     y -= 10
 
     question_title = "السؤال" if contains_arabic(question) else "Question"
     y = draw_section_title(pdf, question_title, y)
 
     question_is_arabic = contains_arabic(question)
+
     y = draw_wrapped_text(
         pdf,
-        question or "No question provided.",
+        question or "Assess the quality of this dataset.",
         50,
         y,
         width_chars=92,
@@ -175,9 +163,10 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
         font_size=10,
         rtl=question_is_arabic,
     )
+
     y -= 16
 
-    overview_title = "نظرة عامة على البيانات" if is_arabic_report else "Dataset Overview"
+    overview_title = "نظرة عامة على البيانات" if contains_arabic(question) else "Dataset Overview"
     y = draw_section_title(pdf, overview_title, y)
 
     overview_lines = [
@@ -200,12 +189,14 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
         font_size=10,
         rtl=False,
     )
+
     y -= 10
 
     analysis_title = "التقييم" if contains_arabic(analysis_text) else "Assessment"
     y = draw_section_title(pdf, analysis_title, y)
 
     analysis_is_arabic = contains_arabic(analysis_text)
+
     y = draw_wrapped_text(
         pdf,
         analysis_text,
@@ -216,25 +207,7 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
         font_size=10,
         rtl=analysis_is_arabic,
     )
-    y -= 16
 
-    recommendations_title = "الإجراءات المقترحة" if any(contains_arabic(r) for r in recommendations) else "Recommended Actions"
-    y = draw_section_title(pdf, recommendations_title, y)
-
-    rec_lines = recommendations or ["No actions recommended."]
-    rec_text = "\n".join([f"- {r}" for r in rec_lines])
-
-    rec_is_arabic = contains_arabic(rec_text)
-    y = draw_wrapped_text(
-        pdf,
-        rec_text,
-        50,
-        y,
-        width_chars=92,
-        font_name=ARABIC_FONT_NAME if rec_is_arabic else "Helvetica",
-        font_size=10,
-        rtl=rec_is_arabic,
-    )
     y -= 16
 
     missing_chart = build_missing_chart(df)
@@ -246,5 +219,6 @@ def build_pdf_report(filename, question, structured, analysis_text, df, recommen
     y = draw_image_on_pdf(pdf, outlier_chart, "Chart: Outliers by Column", y)
 
     pdf.save()
+
     buffer.seek(0)
     return buffer.getvalue()
