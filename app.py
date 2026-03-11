@@ -128,7 +128,6 @@ structured = {
     "goal": goal_label,
 }
 
-recommendations = goal_recommendations(goal_key, structured)
 
 action_label_map = {
     "report": "Build Report Readiness Assessment",
