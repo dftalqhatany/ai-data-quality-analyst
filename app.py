@@ -2,6 +2,7 @@ import os
 
 import pandas as pd
 import streamlit as st
+import pandas as pd
 
 from src.ai_assistant import ask_gpt
 from src.analyzer import assess_readiness, detect_outliers
